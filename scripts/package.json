@@ -1,0 +1,17 @@
+{
+  "name": "@seat-reservation/scripts",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "seed": "tsx seed.ts"
+  },
+  "dependencies": {
+    "pg": "^8.11.5"
+  },
+  "devDependencies": {
+    "@types/node": "^20.12.12",
+    "tsx": "^4.7.2",
+    "typescript": "^5.4.5"
+  }
+}

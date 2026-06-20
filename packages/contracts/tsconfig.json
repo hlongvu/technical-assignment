@@ -1,0 +1,9 @@
+{
+  "extends": "@seat-reservation/tsconfig-base/tsconfig.base.json",
+  "compilerOptions": {
+    "rootDir": "./src",
+    "outDir": "./dist",
+    "composite": true
+  },
+  "include": ["src/**/*.ts"]
+}

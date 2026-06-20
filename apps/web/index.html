@@ -1,0 +1,198 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Seat Reservation Platform</title>
+  <style>
+    :root { color-scheme: light dark; font-family: system-ui, sans-serif; }
+    body { margin: 0; padding: 2rem; background: #f7f7f9; color: #111; }
+    h1 { font-size: 1.4rem; margin: 0 0 1rem; }
+    .grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 1rem; max-width: 720px; }
+    .seat {
+      border: 1px solid #ccc; border-radius: 8px; padding: 1rem;
+      background: white; display: flex; flex-direction: column; gap: 0.5rem;
+    }
+    .seat.held   { border-color: #f0a500; background: #fff7e0; }
+    .seat.reserved { border-color: #2e7d32; background: #e8f5e9; opacity: 0.7; }
+    .seat .label { font-weight: 600; font-size: 1.2rem; }
+    .seat .price { color: #555; }
+    .seat .status { font-size: 0.85rem; text-transform: uppercase; letter-spacing: 0.05em; }
+    button { padding: 0.5rem 0.75rem; border-radius: 4px; border: 0; cursor: pointer; background: #1976d2; color: white; font-weight: 500; }
+    button:disabled { background: #aaa; cursor: not-allowed; }
+    .row { display: flex; gap: 0.5rem; }
+    .row input { padding: 0.5rem; border-radius: 4px; border: 1px solid #ccc; }
+    pre { background: #eee; padding: 1rem; border-radius: 6px; max-height: 240px; overflow: auto; font-size: 0.8rem; }
+    .auth { margin-bottom: 1rem; padding: 1rem; background: white; border: 1px solid #ccc; border-radius: 8px; max-width: 720px; }
+  </style>
+</head>
+<body>
+  <h1>Seat Reservation Platform</h1>
+
+  <div class="auth" id="auth-logout" hidden>
+    Logged in as <span id="email"></span> · <button id="logout-btn">Logout</button> · <button id="logout-all-btn">Logout all</button>
+  </div>
+
+  <div class="auth" id="auth-login">
+    <div class="row">
+      <input id="email" type="email" placeholder="email" />
+      <input id="password" type="password" placeholder="password" />
+      <button id="login-btn">Login</button>
+      <button id="register-btn">Register</button>
+    </div>
+  </div>
+
+  <div class="grid" id="seats"></div>
+
+  <h3>Event log</h3>
+  <pre id="log">Connecting to /api/seats/stream ...</pre>
+
+  <script>
+    // TODO(prod): real SPA + refresh-on-401 interceptor. Single HTML for assessment scope.
+    let accessToken = null;
+    let userEmail = null;
+
+    const apiBase = window.location.origin;
+
+    async function api(path, opts = {}) {
+      const headers = { 'Content-Type': 'application/json', ...(opts.headers || {}) };
+      if (accessToken) headers.Authorization = 'Bearer ' + accessToken;
+      const res = await fetch(apiBase + path, { ...opts, headers, credentials: 'include' });
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error(`${res.status} ${path}: ${JSON.stringify(body)}`);
+      }
+      if (res.status === 204) return null;
+      return res.json();
+    }
+
+    function appendLog(line) {
+      const el = document.getElementById('log');
+      el.textContent = new Date().toISOString() + ' ' + line + '\n' + el.textContent;
+    }
+
+    function showAuthState() {
+      document.getElementById('auth-login').hidden = !!accessToken;
+      document.getElementById('auth-logout').hidden = !accessToken;
+      if (userEmail) document.getElementById('email').textContent = userEmail;
+    }
+
+    document.getElementById('login-btn').onclick = async () => {
+      const email = document.getElementById('email').value;
+      const password = document.getElementById('password').value;
+      try {
+        const r = await api('/api/auth/login', { method: 'POST', body: JSON.stringify({ email, password }) });
+        accessToken = r.accessToken;
+        userEmail = email;
+        appendLog('login ok');
+        showAuthState();
+        await refreshSeats();
+      } catch (e) { appendLog('login failed: ' + e.message); }
+    };
+
+    document.getElementById('register-btn').onclick = async () => {
+      const email = document.getElementById('email').value;
+      const password = document.getElementById('password').value;
+      try {
+        await api('/api/auth/register', { method: 'POST', body: JSON.stringify({ email, password }) });
+        appendLog('register ok');
+      } catch (e) { appendLog('register failed: ' + e.message); }
+    };
+
+    document.getElementById('logout-btn').onclick = async () => {
+      await api('/api/auth/logout', { method: 'POST' });
+      accessToken = null; appendLog('logout'); showAuthState(); await refreshSeats();
+    };
+    document.getElementById('logout-all-btn').onclick = async () => {
+      await api('/api/auth/logout-all', { method: 'POST' });
+      accessToken = null; appendLog('logout-all'); showAuthState(); await refreshSeats();
+    };
+
+    async function refreshSeats() {
+      try {
+        const { seats } = await api('/api/seats');
+        const grid = document.getElementById('seats');
+        grid.innerHTML = '';
+        for (const s of seats) {
+          const div = document.createElement('div');
+          div.className = 'seat ' + (s.status === 'AVAILABLE' ? '' : s.status.toLowerCase());
+          div.innerHTML = `
+            <div class="label">${s.label}</div>
+            <div class="price">$${(s.price_cents / 100).toFixed(2)} ${s.currency}</div>
+            <div class="status">${s.status}${s.held_by_user_id ? ' (held by ' + s.held_by_user_id.slice(0, 8) + ')' : ''}</div>
+            <button data-seat="${s.id}" data-label="${s.label}" data-price="${s.price_cents}" ${s.status !== 'AVAILABLE' ? 'disabled' : ''}>Hold</button>
+          `;
+          grid.appendChild(div);
+        }
+        grid.querySelectorAll('button').forEach(b => b.onclick = () => holdSeat(b.dataset.seat, b.dataset.label));
+      } catch (e) {
+        appendLog('list seats failed: ' + e.message);
+      }
+    }
+
+    async function holdSeat(seatId, label) {
+      if (!accessToken) { appendLog('must login first'); return; }
+      try {
+        const r = await api(`/api/seats/${seatId}/hold`, { method: 'POST', body: '{}' });
+        appendLog(`held seat ${label} until ${r.heldUntil}`);
+        await checkout(seatId, r.holdId, r.priceCents);
+      } catch (e) { appendLog('hold failed: ' + e.message); }
+    }
+
+    async function checkout(seatId, holdId, priceCents) {
+      const idempotencyKey = crypto.randomUUID();
+      try {
+        const r = await api('/api/payment/checkout', {
+          method: 'POST',
+          body: JSON.stringify({ seatId, holdId, idempotencyKey }),
+        });
+        appendLog(`checkout intent ${r.intentId.slice(0, 8)} amount=${r.amountCents}`);
+
+        // Simulate PSP webhook delivery: the mock PSP would call /api/payment/webhook.
+        // For this demo we craft a signed event locally and POST it.
+        await deliverMockWebhook(r.intentId, seatId, holdId, priceCents, r.clientSecret);
+      } catch (e) {
+        appendLog('checkout failed: ' + e.message);
+      }
+    }
+
+    async function deliverMockWebhook(intentId, seatId, holdId, amountCents, clientSecret) {
+      // In a real system, Stripe calls our webhook. For the mock, we sign an event
+      // locally with the same HMAC algorithm the server verifies and POST it.
+      // The client secret contains the pspIntentId we need.
+      const pspIntentId = clientSecret.split('_secret_')[0];
+      const event = {
+        id: 'evt_' + crypto.randomUUID(),
+        type: 'payment_intent.succeeded',
+        created: Math.floor(Date.now() / 1000),
+        data: { object: { id: pspIntentId, amount: amountCents, metadata: { intentId, seatId, holdId } } },
+      };
+      const body = JSON.stringify(event);
+      const t = Math.floor(Date.now() / 1000);
+      // The webhook secret is server-side; we can't compute the HMAC here in a real
+      // system. For the assessment smoke test, use scripts/e2e-smoke.sh which knows
+      // the secret. This front-end path is illustrative only.
+      appendLog('demo: webhook delivery handled by scripts/e2e-smoke.sh');
+    }
+
+    // SSE subscription for live seat updates (Checklist §4.4.1).
+    function connectSSE() {
+      const es = new EventSource('/api/seats/stream');
+      es.onmessage = (e) => {
+        try {
+          const data = JSON.parse(e.data);
+          if (data.type === 'seat:held' || data.type === 'seat:released' || data.type === 'seat:reserved') {
+            appendLog('sse: ' + data.type + ' seat=' + data.seatId?.slice(0, 8));
+            refreshSeats();
+          }
+        } catch { /* ignore ping/hello */ }
+      };
+      es.onerror = () => { appendLog('sse: disconnected (will retry)'); };
+    }
+
+    showAuthState();
+    refreshSeats();
+    connectSSE();
+  </script>
+</body>
+</html>

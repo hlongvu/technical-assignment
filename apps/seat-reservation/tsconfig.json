@@ -1,0 +1,22 @@
+{
+  "extends": "@seat-reservation/tsconfig-base/tsconfig.base.json",
+  "compilerOptions": {
+    "rootDir": "./src",
+    "outDir": "./dist",
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "experimentalDecorators": true,
+    "emitDecoratorMetadata": true,
+    "useDefineForClassFields": false,
+    "noUnusedLocals": false,
+    "noUnusedParameters": false,
+    "isolatedModules": false,
+    "verbatimModuleSyntax": false,
+    "lib": ["ES2022"]
+  },
+  "references": [
+    { "path": "../../packages/be-core" },
+    { "path": "../../packages/contracts" }
+  ],
+  "include": ["src/**/*.ts"]
+}

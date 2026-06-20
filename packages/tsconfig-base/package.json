@@ -1,0 +1,6 @@
+{
+  "name": "@seat-reservation/tsconfig-base",
+  "version": "1.0.0",
+  "private": true,
+  "main": "./tsconfig.base.json"
+}

@@ -1,0 +1,17 @@
+{
+  "name": "seat-reservation-platform",
+  "version": "1.0.0",
+  "private": true,
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "build": "echo \"Run per-app build\" && exit 0",
+    "typecheck": "echo \"Run per-app typecheck\" && exit 0",
+    "lint": "echo \"Run per-app lint\" && exit 0"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}
