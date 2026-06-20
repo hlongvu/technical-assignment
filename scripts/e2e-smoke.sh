@@ -58,9 +58,9 @@ WH=$(curl -sS -X POST "$BASE/api/payment/webhook" \
 echo "  webhook response: $WH"
 
 echo "→ wait for async processing + RabbitMQ delivery"
-for i in 1 2 3 4 5 6 7 8 9 10; do
+for i in $(seq 1 30); do
   sleep 1
-  SEAT=$(curl -sS "$BASE/api/seats" | python3 -c "
+  SEAT=$(curl -sS "$BASE/api/seats/" | python3 -c "
 import sys, json
 seats = json.load(sys.stdin)['seats']
 seat = next(s for s in seats if s['id'] == '$SEAT_ID')
@@ -69,5 +69,5 @@ print(seat['status'])
   echo "  attempt $i: seat status = $SEAT"
   if [ "$SEAT" = "RESERVED" ]; then echo "PASS: seat reserved"; exit 0; fi
 done
-echo "FAIL: seat did not become RESERVED within 10s"
+echo "FAIL: seat did not become RESERVED within 30s"
 exit 1

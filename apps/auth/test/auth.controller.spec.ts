@@ -132,12 +132,13 @@ test('register → login → refresh → logout flow', async () => {
 test('login with wrong password → UnauthorizedException', async () => {
   const email = `wrong-${randomUUID()}@example.com`;
   const password = 'test-password-123';
-  await controller.register(makeReq({ email, password }), makeReq());
+  await controller.register(makeReq({ email, password }).body, makeReq());
 
   await assert.rejects(
     async () => {
+      const req = makeReq({ email, password: 'WRONG' });
       const res = makeRes();
-      await controller.login(makeReq({ email, password: 'WRONG' }), makeReq(), res);
+      await controller.login(req.body, req, res);
     },
     (e: any) => e.message === 'invalid_credentials',
     'should throw UnauthorizedException',
@@ -150,17 +151,13 @@ test('login with non-existent user → UnauthorizedException (after dummy hash)'
   const start = Date.now();
   await assert.rejects(
     async () => {
+      const req = makeReq({ email: `nonexistent-${randomUUID()}@example.com`, password: 'whatever' });
       const res = makeRes();
-      await controller.login(
-        makeReq({ email: `nonexistent-${randomUUID()}@example.com`, password: 'whatever' }),
-        makeReq(),
-        res,
-      );
+      await controller.login(req.body, req, res);
     },
     (e: any) => e.message === 'invalid_credentials',
     'should throw for non-existent user',
   );
   const elapsed = Date.now() - start;
-  // Timing equalization: should have taken real time (argon2 dummy verify).
   assert.ok(elapsed >= 1, 'login for non-existent user should take real time');
 });
