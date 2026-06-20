@@ -64,8 +64,9 @@ async function hold(seatId: string, userId: string): Promise<{ ok: true } | { ok
     } catch (e) {
       await conn.query('ROLLBACK');
       const err = e as { code?: string; constraint?: string };
-      if (err.code === '23505') {
-        return { ok: false, reason: err.constraint ?? 'unique_violation' };
+      // 23505 = unique_violation (partial index), 40001 = serialization_failure (SERIALIZABLE)
+      if (err.code === '23505' || err.code === '40001') {
+        return { ok: false, reason: err.constraint ?? err.code ?? 'conflict' };
       }
       throw e;
     }
