@@ -1,12 +1,18 @@
 import { z } from 'zod';
 import { baseEnv, jwtEnv } from '@seat-reservation/be-core';
 
+// REDIS_URL is required for auth-service (rate-limit guard + health check use it).
+const authBaseEnv = {
+  ...baseEnv,
+  REDIS_URL: z.string().min(1),
+};
+
 /**
  * Auth-service env. Composes shared fragments + service-specific vars.
  * No defaults on secrets — bootstrap throws if missing (Checklist §2.2.7 / §4.2.5).
  */
 export const authEnvSchema = z.object({
-  ...baseEnv,
+  ...authBaseEnv,
   ...jwtEnv,
   AUTH_PORT: z.coerce.number().int().positive().default(4001),
   RT_TTL_SECONDS: z.coerce.number().int().positive().default(7776000),

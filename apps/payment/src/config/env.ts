@@ -1,8 +1,14 @@
 import { z } from 'zod';
 import { baseEnv, jwtEnv } from '@seat-reservation/be-core';
 
-export const paymentEnvSchema = z.object({
+// REDIS_URL is required for payment-service (rate-limit guard uses it).
+const paymentBaseEnv = {
   ...baseEnv,
+  REDIS_URL: z.string().min(1),
+};
+
+export const paymentEnvSchema = z.object({
+  ...paymentBaseEnv,
   ...jwtEnv,
   PAYMENT_PORT: z.coerce.number().int().positive().default(4003),
   WEBHOOK_TOLERANCE_MS: z.coerce.number().int().positive().default(300000),

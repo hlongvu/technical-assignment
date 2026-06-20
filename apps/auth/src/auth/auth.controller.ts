@@ -20,6 +20,12 @@ import { loadEnv, RT_COOKIE_NAME, RT_COOKIE_PATH } from '../config/env.js';
 import { AppLogger, REQUEST_ID_HEADER, resolveTraceId } from '@seat-reservation/be-core';
 import { LOGGER_SERVICE, LoggerService } from '../common/logger.service.js';
 import { RateLimit } from '../common/rate-limit.guard.js';
+import {
+  loginSuccessTotal,
+  loginFailTotal,
+  refreshTotal,
+  reuseDetectedTotal,
+} from '../metrics/metrics.controller.js';
 
 const LoginDto = z.object({
   email: z.string().email(),
@@ -106,6 +112,7 @@ export class AuthController {
       : await verifyDummyPassword();
 
     if (!user || !ok) {
+      loginFailTotal.inc();
       this.log.warn({ action: 'login_failed', email: dto.email, traceId, ip }, 'login failed');
       await this.audit.record(user?.id ?? null, 'login', { traceId, ip, ok: false });
       throw new UnauthorizedException('invalid_credentials');
@@ -115,6 +122,7 @@ export class AuthController {
     const at = this.jwt.signAccessToken(user.id, user.email, user.token_version);
     setRtCookie(res, issued.raw);
     await this.audit.record(user.id, 'login', { traceId, ip, ok: true });
+    loginSuccessTotal.inc();
     this.log.info({ action: 'login', userId: user.id, traceId }, 'login success');
     return { accessToken: at, userId: user.id };
   }
@@ -148,6 +156,7 @@ export class AuthController {
       const at = this.jwt.signAccessToken(user.id, user.email, user.token_version);
       setRtCookie(res, rotated.raw);
       await this.audit.record(user.id, 'refresh', { traceId });
+      refreshTotal.inc();
       this.log.info({ action: 'refresh', userId: user.id, traceId }, 'rt rotated');
       return { accessToken: at, userId: user.id };
     }
@@ -170,6 +179,7 @@ export class AuthController {
     // Checklist §2.1.5 Exceed.
     await this.sessions.revokeFamily(row.family_id);
     await this.audit.record(row.user_id, 'session_revoke', { traceId, reason: 'reuse_detected' });
+    reuseDetectedTotal.inc();
     this.log.error(
       { action: 'rt_reuse_detected', userId: row.user_id, familyId: row.family_id, traceId },
       'revoked token reused past grace — family revoked',

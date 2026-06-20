@@ -9,12 +9,6 @@ import type { Request, Response } from 'express';
 import { Redis } from 'ioredis';
 import { loadEnv } from '../config/env.js';
 
-/**
- * Redis-backed sliding rate-limit guard.
- * Checklist §2.2.1 / §2.2.2: state survives restart, per-endpoint limits via env.
- * Exceed: Redis-backed (no in-memory state loss).
- */
-
 export const RATE_LIMIT_KEY = 'rateLimit';
 
 export interface RateLimitConfig {
@@ -47,7 +41,6 @@ export class RateLimitGuard implements CanActivate {
 
     const now = Date.now();
     const windowStart = now - cfg.windowMs;
-    // Sliding window: ZSET with timestamp scores.
     const multi = this.redis.multi();
     multi.zremrangebyscore(key, 0, windowStart);
     multi.zadd(key, now, `${now}:${Math.random()}`);
@@ -60,7 +53,6 @@ export class RateLimitGuard implements CanActivate {
     res.setHeader('X-RateLimit-Remaining', String(Math.max(0, cfg.max - count)));
 
     if (count > cfg.max) {
-      // Checklist §4.3.5: Retry-After header
       res.setHeader('Retry-After', String(Math.ceil(cfg.windowMs / 1000)));
       res.status(429).json({ error: 'rate_limited', retryAfter: Math.ceil(cfg.windowMs / 1000) });
       return false;

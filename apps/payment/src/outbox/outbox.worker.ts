@@ -46,6 +46,12 @@ export class OutboxWorker implements OnModuleDestroy {
     try {
       const conn = await this.pool.connect();
       try {
+        // Recovery: re-queue PROCESSING rows stuck for > 5 min (crash recovery). §5.2.3.
+        await conn.query(
+          `UPDATE outbox SET state = 'PENDING', next_attempt_at = NOW()
+           WHERE state = 'PROCESSING' AND next_attempt_at < NOW() - interval '5 minutes'`,
+        );
+
         await conn.query('BEGIN');
         const { rows } = await conn.query<OutboxRow>(
           `SELECT id, aggregate_id, event_type, payload, headers, state, attempts, next_attempt_at

@@ -16,13 +16,13 @@ RUN npm run build -w packages/tsconfig-base || true
 RUN npm run build -w packages/be-core
 RUN npm run build -w packages/contracts
 RUN npm run build -w apps/auth
+RUN mkdir -p apps/auth/dist/migrations && cp apps/auth/src/migrations/*.sql apps/auth/dist/migrations/
 
 FROM node:20-alpine AS runtime
+RUN apk add --no-cache wget
 WORKDIR /app
 ENV NODE_ENV=production
-RUN addgroup -S node && adduser -S node -G node
 COPY --from=builder /app/node_modules ./node_modules
-COPY --from=builder /app/apps/auth/node_modules ./apps/auth/node_modules
 COPY --from=builder /app/packages/be-core/dist ./packages/be-core/dist
 COPY --from=builder /app/packages/contracts/dist ./packages/contracts/dist
 COPY --from=builder /app/apps/auth/dist ./apps/auth/dist

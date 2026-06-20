@@ -158,6 +158,58 @@ export class PaymentIntentsRepository {
     return rows[0] ?? null;
   }
 
+  /** Find pending intents for a seat (used by seat.released consumer). §5.2.4. */
+  async findPendingBySeatId(seatId: string): Promise<PaymentIntentRow[]> {
+    const { rows } = await this.pool.query<PaymentIntentRow>(
+      `SELECT * FROM payment_intents WHERE seat_id = $1 AND status = 'PENDING'`,
+      [seatId],
+    );
+    return rows;
+  }
+
+  /** Mark intent FAILED for a seat (seat released → cancel pending intent). §5.2.4. */
+  async markFailedBySeatId(
+    seatId: string,
+    reason: string,
+    eventId: string,
+    traceId: string,
+  ): Promise<{ ok: true; intent: PaymentIntentRow } | { ok: false; reason: string }> {
+    const conn = await this.pool.connect();
+    try {
+      await conn.query('BEGIN');
+      const { rows } = await conn.query<PaymentIntentRow>(
+        `UPDATE payment_intents
+         SET status = 'FAILED', completed_at = NOW()
+         WHERE seat_id = $1 AND status = 'PENDING'
+         RETURNING *`,
+        [seatId],
+      );
+      if (rows.length === 0) {
+        await conn.query('ROLLBACK');
+        return { ok: false, reason: 'no_pending_intent' };
+      }
+      const intent = rows[0];
+      await appendOutbox(conn, intent.id, 'payment.failed.v1', {
+        schema: 'payment.failed.v1',
+        eventId,
+        paymentIntentId: intent.id,
+        seatId: intent.seat_id,
+        userId: intent.user_id,
+        holdId: intent.hold_id,
+        reason,
+        traceId,
+        occurredAt: new Date().toISOString(),
+      }, { traceId, userId: intent.user_id });
+      await conn.query('COMMIT');
+      return { ok: true, intent };
+    } catch (e) {
+      try { await conn.query('ROLLBACK'); } catch { /* ignore */ }
+      throw e;
+    } finally {
+      conn.release();
+    }
+  }
+
   /** Insert webhook inbox row; returns true if inserted (new), false if dedup'd. §5.1.4. */
   async insertWebhookInbox(stripeEventId: string, type: string, payload: unknown): Promise<boolean> {
     const result = await this.pool.query(

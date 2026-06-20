@@ -22,7 +22,15 @@ export class RabbitService implements OnModuleDestroy {
 
   private async doConnect(): Promise<void> {
     const env = loadEnv();
-    this.conn = await amqp.connect(env.RABBITMQ_URL);
+    for (let attempt = 1; ; attempt++) {
+      try {
+        this.conn = await amqp.connect(env.RABBITMQ_URL);
+        break;
+      } catch (e) {
+        if (attempt >= 10) throw e;
+        await new Promise((r) => setTimeout(r, 2000 * attempt));
+      }
+    }
     // Confirm channel for publisher confirms (at-least-once to broker).
     this.pubChannel = await this.conn.createConfirmChannel();
     await this.pubChannel.assertExchange(EXCHANGES.SEAT_EVENTS, 'topic', { durable: true });

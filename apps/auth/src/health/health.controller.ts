@@ -1,6 +1,6 @@
-import { Controller, Get } from '@nestjs/common';
-import { Inject } from '@nestjs/common';
+import { Controller, Get, Inject, Res } from '@nestjs/common';
 import type { Pool } from 'pg';
+import type { Response } from 'express';
 import { PG_POOL } from '../config/db.module.js';
 import { Redis } from 'ioredis';
 import { loadEnv } from '../config/env.js';
@@ -10,12 +10,10 @@ const VERSION = process.env.npm_package_version ?? '1.0.0';
 
 @Controller('health')
 export class HealthController {
-  private redis: Redis | null = null;
+  private readonly redis: Redis;
 
   constructor(@Inject(PG_POOL) private readonly pool: Pool) {
-    if (loadEnv().REDIS_URL) {
-      this.redis = new Redis(loadEnv().REDIS_URL!);
-    }
+    this.redis = new Redis(loadEnv().REDIS_URL);
   }
 
   /** Checklist §4.1.1: process-alive probe. */
@@ -28,9 +26,9 @@ export class HealthController {
     };
   }
 
-  /** Checklist §4.1.2: ready probe checks every dep; returns degraded state. */
+  /** Checklist §4.1.2: ready probe checks every dep; returns 503 when degraded. */
   @Get('ready')
-  async ready() {
+  async ready(@Res({ passthrough: true }) res: Response) {
     const checks: Record<string, string> = {};
     try {
       await this.pool.query('SELECT 1');
@@ -39,18 +37,14 @@ export class HealthController {
       checks.db = 'fail';
     }
     try {
-      if (this.redis) {
-        await this.redis.ping();
-        checks.redis = 'ok';
-      } else {
-        checks.redis = 'skip';
-      }
+      await this.redis.ping();
+      checks.redis = 'ok';
     } catch {
       checks.redis = 'fail';
     }
-    // Rabbit is not a hard dep for auth-service in the assessment scope.
     checks.rabbit = 'skip';
-    const ok = Object.values(checks).every((v) => v === 'ok' || v === 'skip');
+    const ok = checks.db === 'ok' && checks.redis === 'ok';
+    if (!ok) res.status(503);
     return {
       status: ok ? 'ok' : 'degraded',
       checks,

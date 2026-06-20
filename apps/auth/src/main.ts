@@ -1,5 +1,4 @@
-import { NestFactory, Reflector } from '@nestjs/core';
-import { ValidationPipe, ClassSerializerInterceptor } from '@nestjs/common';
+import { NestFactory } from '@nestjs/core';
 import helmet from 'helmet';
 import cookieParser from 'cookie-parser';
 import { AppModule } from './app.module.js';
@@ -30,7 +29,6 @@ async function bootstrap(): Promise<void> {
   await initDummyHash();
 
   const app = await NestFactory.create(AppModule);
-  const reflector = app.get(Reflector);
 
   // Security middleware (Checklist §2.2.4 / §2.2.5)
   app.use(helmet());
@@ -42,9 +40,6 @@ async function bootstrap(): Promise<void> {
     allowedHeaders: ['Content-Type', 'Authorization', 'x-request-id'],
     methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE'],
   });
-
-  app.useGlobalPipes(new ValidationPipe({ transform: true, whitelist: true }));
-  app.useGlobalInterceptors(new ClassSerializerInterceptor(reflector));
 
   // Checklist §4.1.3: graceful shutdown on SIGTERM
   app.enableShutdownHooks();

@@ -13,10 +13,13 @@ import { PaymentIntentsRepository } from './payment-intents.repository.js';
 import { MockPSPClient } from '../psps/psp.client.js';
 import { CircuitBreaker } from '../psps/circuit-breaker.js';
 import { JwtAuthGuard, AuthenticatedRequest } from '../common/jwt-auth.guard.js';
+import { RateLimit } from '../common/rate-limit.guard.js';
 import { LOGGER_SERVICE, LoggerService } from '../common/logger.service.js';
 import { Inject } from '@nestjs/common';
 import { AppLogger, REQUEST_ID_HEADER, resolveTraceId } from '@seat-reservation/be-core';
+import { loadEnv } from '../config/env.js';
 import { randomUUID } from 'node:crypto';
+import { paymentInitiatedTotal } from '../metrics/metrics.controller.js';
 
 const CheckoutDto = z.object({
   seatId: z.string().uuid(),
@@ -56,6 +59,11 @@ export class CheckoutController {
   @Post('checkout')
   @HttpCode(200)
   @UseGuards(JwtAuthGuard)
+  @RateLimit({
+    name: 'payment-checkout',
+    windowMs: loadEnv().RATE_LIMIT_PAYMENT_WINDOW_MS,
+    max: loadEnv().RATE_LIMIT_PAYMENT_MAX,
+  })
   async checkout(@Body() body: unknown, @Req() req: AuthenticatedRequest) {
     const dto = CheckoutDto.parse(body);
     const traceId = resolveTraceId(req.headers[REQUEST_ID_HEADER] as string | undefined);
@@ -95,21 +103,43 @@ export class CheckoutController {
       throw new BadRequestException({ error: 'psp_unavailable', detail: String(e) });
     }
 
-    const intent = await this.intents.createIntent({
-      seatId: dto.seatId,
-      userId: req.user.userId,
-      holdId: dto.holdId,
-      amountCents: price.price_cents,
-      currency: price.currency,
-      idempotencyKey: dto.idempotencyKey,
-      pspIntentId: pspResult.pspIntentId,
-      clientSecret: pspResult.clientSecret,
-    });
+    let intent;
+    try {
+      intent = await this.intents.createIntent({
+        seatId: dto.seatId,
+        userId: req.user.userId,
+        holdId: dto.holdId,
+        amountCents: price.price_cents,
+        currency: price.currency,
+        idempotencyKey: dto.idempotencyKey,
+        pspIntentId: pspResult.pspIntentId,
+        clientSecret: pspResult.clientSecret,
+      });
+    } catch (e) {
+      // Race: another concurrent request with the same idempotencyKey already
+      // inserted. Return the existing intent instead of 500. §3.3.4.
+      const err = e as { code?: string };
+      if (err.code === '23505') {
+        const existing = await this.intents.findByIdempotencyKey(dto.idempotencyKey);
+        if (existing) {
+          this.log.info({ action: 'checkout_idempotent_race', intentId: existing.id, traceId }, 'checkout race resolved — returning existing intent');
+          return {
+            intentId: existing.id,
+            clientSecret: existing.client_secret,
+            amountCents: existing.amount_cents,
+            currency: existing.currency,
+            idempotent: true,
+          };
+        }
+      }
+      throw e;
+    }
 
     this.log.info(
       { action: 'payment_initiate', intentId: intent.id, seatId: dto.seatId, userId: req.user.userId, amountCents: intent.amount_cents, traceId },
       'payment intent created',
     );
+    paymentInitiatedTotal.inc();
 
     return {
       intentId: intent.id,

@@ -5,6 +5,8 @@ import { AppModule } from './app.module.js';
 import { loadEnv } from './config/env.js';
 import { runMigrations } from './migrations/run.js';
 import { OutboxWorker } from './outbox/outbox.worker.js';
+import { SeatEventsConsumer } from './events/seat-events.consumer.js';
+import { WebhookReprocessor } from './webhooks/webhook-reprocessor.js';
 
 async function bootstrap(): Promise<void> {
   const env = loadEnv();
@@ -54,7 +56,11 @@ async function bootstrap(): Promise<void> {
   app.enableShutdownHooks();
 
   const outbox = app.get(OutboxWorker);
+  const seatConsumer = app.get(SeatEventsConsumer);
+  const reprocessor = app.get(WebhookReprocessor);
   outbox.start();
+  reprocessor.start();
+  await seatConsumer.start();
 
   await app.listen(env.PAYMENT_PORT, '0.0.0.0');
 

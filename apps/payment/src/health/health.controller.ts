@@ -1,5 +1,6 @@
-import { Controller, Get, Inject } from '@nestjs/common';
+import { Controller, Get, Inject, Res } from '@nestjs/common';
 import type { Pool } from 'pg';
+import type { Response } from 'express';
 import { PG_POOL } from '../config/db.module.js';
 import { RabbitService } from '../events/rabbit.service.js';
 
@@ -19,7 +20,7 @@ export class HealthController {
   }
 
   @Get('ready')
-  async ready() {
+  async ready(@Res({ passthrough: true }) res: Response) {
     const checks: Record<string, string> = {};
     try {
       await this.pool.query('SELECT 1');
@@ -34,6 +35,7 @@ export class HealthController {
       checks.rabbit = 'fail';
     }
     const ok = Object.values(checks).every((v) => v === 'ok');
+    if (!ok) res.status(503);
     return { status: ok ? 'ok' : 'degraded', checks, version: VERSION };
   }
 }

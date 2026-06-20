@@ -14,13 +14,13 @@ COPY apps/seat-reservation ./apps/seat-reservation
 RUN npm run build -w packages/be-core
 RUN npm run build -w packages/contracts
 RUN npm run build -w apps/seat-reservation
+RUN mkdir -p apps/seat-reservation/dist/migrations && cp apps/seat-reservation/src/migrations/*.sql apps/seat-reservation/dist/migrations/
 
 FROM node:20-alpine AS runtime
+RUN apk add --no-cache wget
 WORKDIR /app
 ENV NODE_ENV=production
-RUN addgroup -S node && adduser -S node -G node
 COPY --from=builder /app/node_modules ./node_modules
-COPY --from=builder /app/apps/seat-reservation/node_modules ./apps/seat-reservation/node_modules
 COPY --from=builder /app/packages/be-core/dist ./packages/be-core/dist
 COPY --from=builder /app/packages/contracts/dist ./packages/contracts/dist
 COPY --from=builder /app/apps/seat-reservation/dist ./apps/seat-reservation/dist

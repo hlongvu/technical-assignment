@@ -14,13 +14,13 @@ COPY apps/payment ./apps/payment
 RUN npm run build -w packages/be-core
 RUN npm run build -w packages/contracts
 RUN npm run build -w apps/payment
+RUN mkdir -p apps/payment/dist/migrations && cp apps/payment/src/migrations/*.sql apps/payment/dist/migrations/
 
 FROM node:20-alpine AS runtime
+RUN apk add --no-cache wget
 WORKDIR /app
 ENV NODE_ENV=production
-RUN addgroup -S node && adduser -S node -G node
 COPY --from=builder /app/node_modules ./node_modules
-COPY --from=builder /app/apps/payment/node_modules ./apps/payment/node_modules
 COPY --from=builder /app/packages/be-core/dist ./packages/be-core/dist
 COPY --from=builder /app/packages/contracts/dist ./packages/contracts/dist
 COPY --from=builder /app/apps/payment/dist ./apps/payment/dist

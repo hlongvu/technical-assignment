@@ -1,8 +1,14 @@
 import { z } from 'zod';
 import { baseEnv, jwtEnv } from '@seat-reservation/be-core';
 
-export const seatEnvSchema = z.object({
+// REDIS_URL is required for seat-service (rate-limit guard uses it).
+const seatBaseEnv = {
   ...baseEnv,
+  REDIS_URL: z.string().min(1),
+};
+
+export const seatEnvSchema = z.object({
+  ...seatBaseEnv,
   ...jwtEnv,
   SEAT_PORT: z.coerce.number().int().positive().default(4002),
   HOLD_TTL_SECONDS: z.coerce.number().int().positive().default(120),

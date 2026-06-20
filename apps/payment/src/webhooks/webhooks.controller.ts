@@ -16,6 +16,12 @@ import { LOGGER_SERVICE, LoggerService } from '../common/logger.service.js';
 import { AppLogger, REQUEST_ID_HEADER, resolveTraceId } from '@seat-reservation/be-core';
 import { loadEnv } from '../config/env.js';
 import { randomUUID } from 'node:crypto';
+import {
+  webhookReceivedTotal,
+  webhookDedupedTotal,
+  paymentCompletedTotal,
+  paymentFailedTotal,
+} from '../metrics/metrics.controller.js';
 
 /**
  * Webhook controller. Checklist §3.3.1 / §5.1.2 / §5.1.3 / §5.1.4.
@@ -79,8 +85,10 @@ export class WebhooksController {
     }
 
     // 3. Idempotent inbox. UNIQUE(stripe_event_id) → duplicate = no-op. §5.1.4.
+    webhookReceivedTotal.inc();
     const inserted = await this.intentsInsertInbox(event);
     if (!inserted) {
+      webhookDedupedTotal.inc();
       this.log.info({ action: 'webhook_dedupe', eventId: event.id, traceId }, 'duplicate webhook acked (idempotent)');
       return { received: true, deduplicated: true };
     }
@@ -110,6 +118,7 @@ export class WebhooksController {
     if (event.type === 'payment_intent.succeeded') {
       const r = await this.intents.markCompleted(event.data.object.id, eventId, traceId);
       if (r.ok) {
+        paymentCompletedTotal.inc();
         this.log.info({ action: 'payment_completed', intentId: r.intent.id, eventId: event.id, traceId }, 'payment completed → seat reserve');
       } else {
         this.log.warn({ action: 'payment_completed_noop', pspIntentId: event.data.object.id, reason: r.reason, traceId }, 'mark completed noop');
@@ -117,6 +126,7 @@ export class WebhooksController {
     } else if (event.type === 'payment_intent.payment_failed') {
       const r = await this.intents.markFailed(event.data.object.id, 'payment_failed', eventId, traceId);
       if (r.ok) {
+        paymentFailedTotal.inc();
         this.log.info({ action: 'payment_failed', intentId: r.intent.id, eventId: event.id, traceId }, 'payment failed → seat release');
       } else {
         this.log.warn({ action: 'payment_failed_noop', pspIntentId: event.data.object.id, reason: r.reason, traceId }, 'mark failed noop');

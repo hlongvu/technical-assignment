@@ -15,6 +15,7 @@ import {
 import { LOGGER_SERVICE, LoggerService } from '../common/logger.service.js';
 import { AppLogger } from '@seat-reservation/be-core';
 import { z } from 'zod';
+import { seatsReservedTotal, seatsReleasedTotal } from '../metrics/metrics.controller.js';
 
 const AnyEvent = z.union([PaymentSucceededV1, PaymentFailedV1, SeatHeldV1, SeatReleasedV1, SeatReservedV1]);
 
@@ -59,6 +60,7 @@ export class PaymentEventsConsumer implements OnModuleDestroy {
         if (parsed.schema === 'payment.succeeded.v1') {
           const r = await this.holds.reserveHold(parsed.holdId, parsed.eventId, 'seat-service', parsed.traceId);
           if (r.reserved) {
+            seatsReservedTotal.inc();
             this.bus.emit({ type: 'seat:reserved', seatId: r.seatId, userId: r.userId });
             this.log.info({ action: 'reserved', seatId: r.seatId, userId: r.userId, traceId: parsed.traceId }, 'seat reserved');
           } else {
@@ -67,6 +69,7 @@ export class PaymentEventsConsumer implements OnModuleDestroy {
         } else if (parsed.schema === 'payment.failed.v1') {
           const r = await this.holds.releaseHold(parsed.holdId, 'payment_failed', parsed.traceId);
           if (r.released) {
+            seatsReleasedTotal.inc();
             this.bus.emit({ type: 'seat:released', seatId: r.seatId });
             this.log.info({ action: 'released', seatId: r.seatId, traceId: parsed.traceId }, 'seat released (payment failed)');
           } else {

@@ -19,10 +19,12 @@ import { SeatsRepository } from './seats.repository.js';
 import { HoldsRepository } from '../holds/holds.repository.js';
 import { SeatEventBus } from './seat-event.bus.js';
 import { JwtAuthGuard, AuthenticatedRequest } from '../common/jwt-auth.guard.js';
+import { RateLimit } from '../common/rate-limit.guard.js';
 import { loadEnv } from '../config/env.js';
 import { REQUEST_ID_HEADER, resolveTraceId } from '@seat-reservation/be-core';
+import { seatsHeldTotal, seatsReleasedTotal, holdConflictsTotal } from '../metrics/metrics.controller.js';
 
-const HoldResponseSchema = z.object({});
+const HoldBodySchema = z.object({}).strip();
 
 @Controller('api/seats')
 export class SeatsController {
@@ -62,16 +64,22 @@ export class SeatsController {
   @Post(':id/hold')
   @HttpCode(200)
   @UseGuards(JwtAuthGuard)
+  @RateLimit({
+    name: 'seat-hold',
+    windowMs: loadEnv().RATE_LIMIT_SEAT_WINDOW_MS,
+    max: loadEnv().RATE_LIMIT_SEAT_MAX,
+  })
   async hold(
     @Param('id') seatId: string,
-    @Body() _body: unknown,
+    @Body() body: unknown,
     @Req() req: AuthenticatedRequest,
     @Res({ passthrough: true }) res: Response,
   ) {
-    void HoldResponseSchema;
+    HoldBodySchema.parse(body);
     const traceId = resolveTraceId(req.headers[REQUEST_ID_HEADER] as string | undefined);
     const result = await this.holds.insertHoldTx(seatId, req.user.userId, traceId);
     if (!result.ok) {
+      holdConflictsTotal.inc();
       // Checklist §3.1.5: 409 + meaningful Retry-After.
       res.setHeader('Retry-After', String(loadEnv().RETRY_AFTER_SECONDS));
       throw new ConflictException({
@@ -79,6 +87,7 @@ export class SeatsController {
         retryAfter: loadEnv().RETRY_AFTER_SECONDS,
       });
     }
+    seatsHeldTotal.inc();
     this.bus.emit({ type: 'seat:held', seatId, userId: req.user.userId, heldUntil: result.hold.held_until });
     return {
       holdId: result.hold.id,
@@ -92,11 +101,19 @@ export class SeatsController {
   @Post(':id/release')
   @HttpCode(204)
   @UseGuards(JwtAuthGuard)
+  @RateLimit({
+    name: 'seat-release',
+    windowMs: loadEnv().RATE_LIMIT_SEAT_WINDOW_MS,
+    max: loadEnv().RATE_LIMIT_SEAT_MAX,
+  })
   async release(@Param('id') seatId: string, @Req() req: AuthenticatedRequest) {
     const traceId = resolveTraceId(req.headers[REQUEST_ID_HEADER] as string | undefined);
     const hold = await this.holds.findActiveHoldForSeat(seatId);
     if (!hold || hold.user_id !== req.user.userId) return;
     const { released, seatId: sid } = await this.holds.releaseHold(hold.id, 'user_cancelled', traceId);
-    if (released) this.bus.emit({ type: 'seat:released', seatId: sid });
+    if (released) {
+      seatsReleasedTotal.inc();
+      this.bus.emit({ type: 'seat:released', seatId: sid });
+    }
   }
 }

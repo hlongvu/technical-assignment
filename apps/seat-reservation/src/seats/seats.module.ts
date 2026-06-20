@@ -8,6 +8,6 @@ import { HoldsModule } from '../holds/holds.module.js';
   imports: [HoldsModule],
   controllers: [SeatsController],
   providers: [SeatsRepository, SeatEventBus],
-  exports: [SeatEventBus],
+  exports: [SeatEventBus, SeatsRepository],
 })
 export class SeatsModule {}
